@@ -1,3 +1,4 @@
+#version 300 es
 precision highp float;
 
 uniform vec2  iResolution;
@@ -60,9 +61,14 @@ const float CA_AMOUNT = 0.02;  // radial channel separation; 0.005 = subtle, 0.0
 const float GRAIN_AMOUNT = 1.2;  // noise intensity: 0 = off | 0.04 = subtle | 0.12 = heavy
 const float GRAIN_SPEED  = 20.0;  // grain refresh rate in Hz  (12 = cinematic, 30 = video)
 
+// ── Colour helper ─────────────────────────────────────────────────────────────
+// Paste any 6-digit hex code directly from a colour picker.
+// Usage: HEX(0xRRGGBB)
+#define HEX(c) (vec3(float((c) >> 16 & 0xFF), float((c) >> 8 & 0xFF), float((c) & 0xFF)) / 255.0)
+
 // ── Colours ───────────────────────────────────────────────────────────────────
-const vec3 COL_A = vec3(0.0, 0.639, 0.118); // segment A 
-const vec3 COL_B = vec3(0.0, 0.192, 0.612); // segment B 
+const vec3 COL_A = HEX(0x00A31E);  // segment A — #00A31E  green
+const vec3 COL_B = HEX(0x00319C);  // segment B — #00319C  blue
 
 // Cubic bezier position — must be defined before curvePos uses it.
 vec2 cbez(vec2 p0, vec2 cp1, vec2 cp2, vec2 p1, float t) {
@@ -250,7 +256,9 @@ vec4 hexCell(vec2 p) {
         : vec4(h.zw, hC.zw + 0.5);
 }
 
-void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+out vec4 fragColor;
+
+void mainImage(out vec4 fc, in vec2 fragCoord) {
     vec2 u = (fragCoord - iResolution.xy * 0.5) / iResolution.y;
 
     float zoom  = sin(iTime / HEX_ZOOM_SPEED) * HEX_ZOOM_AMP + HEX_ZOOM_BASE;
@@ -323,11 +331,9 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
 
     // Alpha = saturated sum of channels — 0 where nothing is drawn (transparent
     // background shows through), 1 where curves / glow are present.
-    fragColor = vec4(col, min(1.0, col.r + col.g + col.b));
+    fc = vec4(col, min(1.0, col.r + col.g + col.b));
 }
 
 void main() {
-    vec4 color;
-    mainImage(color, gl_FragCoord.xy);
-    gl_FragColor = color;
+    mainImage(fragColor, gl_FragCoord.xy);
 }

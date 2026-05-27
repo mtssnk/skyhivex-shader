@@ -1,0 +1,11 @@
+{
+  "name": "skyhivex-shader",
+  "version": "0.1.0",
+  "description": "WebGL2 shader prototype — animated comet trails on a hex grid",
+  "scripts": {
+    "dev": "serve . --listen 8080"
+  },
+  "devDependencies": {
+    "serve": "^14.0.0"
+  }
+}

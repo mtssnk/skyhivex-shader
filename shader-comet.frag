@@ -1,3 +1,4 @@
+#version 300 es
 precision highp float;
 
 uniform vec2  iResolution;
@@ -16,13 +17,19 @@ const float CURVE_SCALE   = 0.5;   // shape size relative to hex cell
 // More points → smoother brightness gradient along the tail.
 #define POINT_COUNT 18
 
+// ── Colour helper — paste any 6-digit hex code directly from a colour picker ──
+// Usage: HEX(0xRRGGBB)
+// Bitwise unpacking is a GLSL ES 3.00 (WebGL2) feature; the result is a
+// constant expression so it works with const globals.
+#define HEX(c) (vec3(float((c) >> 16 & 0xFF), float((c) >> 8 & 0xFF), float((c) & 0xFF)) / 255.0)
+
 // ── Glow & comet shape ────────────────────────────────────────────────────────
-const float GLOW_RADIUS     = 0.011; // nucleus halo radius (tightest point at head)
-const float GLOW_INTENSITY  = 1.9;   // glow falloff exponent (higher = tighter halo)
-const float CORE_BRIGHTNESS = 3.5;   // nucleus peak brightness
+const float GLOW_RADIUS     = 0.013; // nucleus halo radius (tightest point at head)
+const float GLOW_INTENSITY  = 2.0;   // glow falloff exponent (higher = tighter halo)
+const float CORE_BRIGHTNESS = 0.3;   // nucleus peak brightness
 // Tail parameters
-const float TAIL_FALLOFF    = 1.6;   // brightness decay exponent (1=linear, 2=quad, 3=steep)
-const float TAIL_SPREAD     = 7.0;   // glow radius at tail tip ÷ head radius
+const float TAIL_FALLOFF    = 3.0;   // brightness decay exponent (1=linear, 2=quad, 3=steep)
+const float TAIL_SPREAD     = 6.0;   // glow radius at tail tip ÷ head radius
 
 // ── Hex grid ──────────────────────────────────────────────────────────────────
 const float HEX_ZOOM_BASE  = 50.0;
@@ -33,15 +40,20 @@ const float HEX_DRIFT_Y    = 0.0;
 const float HEX_BORDER     = 0.2;
 
 // ── Grain ─────────────────────────────────────────────────────────────────────
-const float GRAIN_AMOUNT = 1.0;   // intensity (scaled by luma — only affects lit areas)
-const float GRAIN_SPEED  = 20.0;  // flicker rate in Hz
+const float GRAIN_AMOUNT = 1.5;   // intensity (scaled by luma — only affects lit areas)
+const float GRAIN_SPEED  = 30.0;  // flicker rate in Hz
 
 // ── Comet colours ─────────────────────────────────────────────────────────────
-// HEAD = bright nucleus / coma.  TAIL = dispersing vapour trail.
-const vec3 COL_A_HEAD = vec3(0.88, 0.95, 1.00);  // Path A nucleus — blue-white
-const vec3 COL_A_TAIL = vec3(0.04, 0.18, 0.72);  // Path A tail   — deep blue
-const vec3 COL_B_HEAD = vec3(0.75, 1.00, 0.90);  // Path B nucleus — cyan-white
-const vec3 COL_B_TAIL = vec3(0.00, 0.12, 0.45);  // Path B tail   — deep teal
+// Three independent colour controls per path:
+//   CORE = innermost nucleus spike  (the hardest, brightest point)
+//   HEAD = outer coma / head glow   (blends into the tail)
+//   TAIL = dispersing vapour trail
+const vec3 COL_A_CORE = HEX(0x0697FE);  // Path A nucleus spike — pure white
+const vec3 COL_A_HEAD = HEX(0x3E00E9);  // Path A head glow     — blue
+const vec3 COL_A_TAIL = HEX(0xB50021);  // Path A tail          — deep purple
+const vec3 COL_B_CORE = HEX(0xC8FF00);  // Path B nucleus spike — pure white
+const vec3 COL_B_HEAD = HEX(0x00FF33);  // Path B head glow     — green
+const vec3 COL_B_TAIL = HEX(0xC70003);  // Path B tail          — deep red
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Cubic bezier position — must be defined before curve shapes.
@@ -52,33 +64,26 @@ vec2 cbez(vec2 p0, vec2 cp1, vec2 cp2, vec2 p1, float t) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// CURVE SHAPES  (viewBox 0 0 504 328 — centre 252,164 — scale 252 — no Y-flip)
+// CURVE SHAPES  (viewBox 0 0 504 328 — centre 252,164 — scale 252)
+// Coordinates: x_norm = (svgX − 252) / 252,  y_norm = (svgY − 164) / 252
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// ── PATH A — diagonal band with rounded corners ──
+// ── PATH A — diagonal band (parallelogram, sharp corners) ──
+//   M406.9,292.9 H292.8 L77.3,77.2 h110.7 Z  (viewBox 0 0 504 328)
 vec2 curvePosA(float t) {
-    vec2 p0 = vec2( 0.5476,  0.5115);
-    vec2 p1 = vec2( 0.2234,  0.5115);
-    vec2 p2 = vec2( 0.1187,  0.4679);
-    vec2 p3 = vec2(-0.6464, -0.2976);
-    vec2 p4 = vec2(-0.6270, -0.3444);
-    vec2 p5 = vec2(-0.3147, -0.3444);
-    vec2 p6 = vec2(-0.2107, -0.3016);
-    vec2 p7 = vec2( 0.5667,  0.4651);
+    vec2 pA = vec2( 0.6147,  0.5115);  // (406.9, 292.9)
+    vec2 pB = vec2( 0.1619,  0.5115);  // (292.8, 292.9)
+    vec2 pC = vec2(-0.6933, -0.3444);  // ( 77.3,  77.2)
+    vec2 pD = vec2(-0.2540, -0.3444);  // (188.0,  77.2)
 
-    float l0=0.324, l1=0.116, l2=1.082, l3=0.061,
-          l4=0.312, l5=0.115, l6=1.092, l7=0.061;
-    float total = l0+l1+l2+l3+l4+l5+l6+l7;
+    float lAB = 0.453, lBC = 1.210, lCD = 0.439, lDA = 1.220;
+    float total = lAB + lBC + lCD + lDA;
     float arc = fract(t / 6.28318) * total;
 
-    if (arc < l0) return mix(p0, p1, arc/l0); arc -= l0;
-    if (arc < l1) return cbez(p1, vec2( 0.1841, 0.5115), vec2( 0.1464, 0.4960), p2, arc/l1); arc -= l1;
-    if (arc < l2) return mix(p2, p3, arc/l2); arc -= l2;
-    if (arc < l3) return cbez(p3, vec2(-0.6635,-0.3151), vec2(-0.6516,-0.3444), p4, arc/l3); arc -= l3;
-    if (arc < l4) return mix(p4, p5, arc/l4); arc -= l4;
-    if (arc < l5) return cbez(p5, vec2(-0.2758,-0.3444), vec2(-0.2385,-0.3290), p6, arc/l5); arc -= l5;
-    if (arc < l6) return mix(p6, p7, arc/l6); arc -= l6;
-    return cbez(p7, vec2( 0.5845, 0.4817), vec2( 0.5722, 0.5115), p0, clamp(arc/l7, 0.0, 1.0));
+    if (arc < lAB) return mix(pA, pB, arc / lAB); arc -= lAB;
+    if (arc < lBC) return mix(pB, pC, arc / lBC); arc -= lBC;
+    if (arc < lCD) return mix(pC, pD, arc / lCD); arc -= lCD;
+    return mix(pD, pA, clamp(arc / lDA, 0.0, 1.0));
 }
 
 // ── PATH B — curved swoosh ──
@@ -156,10 +161,11 @@ vec4 hexCell(vec2 p) {
 // Sample points are ordered tail→head: pts[0] is the trailing end, pts[last]
 // is the leading nucleus.  For each segment i:
 //
-//   tf    = float(i) / float(POINT_COUNT-2)   → 0 = tail end, 1 = head end
-//   brt   = pow(tf, TAIL_FALLOFF)             → dim at tail, full at head
-//   rad   = GLOW_RADIUS * mix(TAIL_SPREAD,1)  → wide+diffuse tail, tight nucleus
-//   segC  = mix(COL_TAIL, COL_HEAD, tf)       → colour shifts tail→nucleus
+//   tf     = float(i) / float(POINT_COUNT-2)   → 0 = tail end, 1 = head end
+//   brt    = pow(tf, TAIL_FALLOFF)             → dim at tail, full at head
+//   rad    = GLOW_RADIUS * mix(TAIL_SPREAD,1)  → wide+diffuse tail, tight nucleus
+//   glowC  = mix(COL_TAIL, COL_HEAD, tf)       → glow gradient tail→head
+//   coreC  = COL_CORE                          → nucleus spike, independent colour
 // ─────────────────────────────────────────────────────────────────────────────
 
 vec2 pts[POINT_COUNT];
@@ -172,16 +178,16 @@ void cometTrailA(float t, vec2 pos, inout vec3 col) {
         pts[i] = curvePosA(phase + float(i) * step);
 
     for (int i = 0; i < POINT_COUNT - 1; i++) {
-        float tf   = float(i) / float(POINT_COUNT - 2);
-        float brt  = pow(tf, TAIL_FALLOFF);
-        float rad  = GLOW_RADIUS * mix(TAIL_SPREAD, 1.0, tf);
-        vec3  segC = mix(COL_A_TAIL, COL_A_HEAD, tf);
+        float tf    = float(i) / float(POINT_COUNT - 2);
+        float brt   = pow(tf, TAIL_FALLOFF);
+        float rad   = GLOW_RADIUS * mix(TAIL_SPREAD, 1.0, tf);
+        vec3  glowC = mix(COL_A_TAIL, COL_A_HEAD, tf);  // tail→head gradient
 
         float d = sdSegment(pos, CURVE_SCALE * pts[i], CURVE_SCALE * pts[i+1]);
-        // Diffuse glow — widens and fades toward the tail.
-        col += brt * glowFn(d, rad, GLOW_INTENSITY) * segC;
-        // Nucleus core — brt² keeps the bright spike only at the very head.
-        col += CORE_BRIGHTNESS * brt * brt * segC * smoothstep(0.006, 0.003, d);
+        // Diffuse glow — colour shifts from TAIL to HEAD along the snake.
+        col += brt * glowFn(d, rad, GLOW_INTENSITY) * glowC;
+        // Nucleus spike — uses CORE colour independently; brt² keeps it at the head.
+        col += CORE_BRIGHTNESS * brt * brt * COL_A_CORE * smoothstep(0.006, 0.003, d);
     }
 }
 
@@ -194,21 +200,23 @@ void cometTrailB(float t, vec2 pos, inout vec3 col) {
 
     vec2 c = (pts[0] + pts[1]) * 0.5, prev;
     for (int i = 0; i < POINT_COUNT - 1; i++) {
-        float tf   = float(i) / float(POINT_COUNT - 2);
-        float brt  = pow(tf, TAIL_FALLOFF);
-        float rad  = GLOW_RADIUS * mix(TAIL_SPREAD, 1.0, tf);
-        vec3  segC = mix(COL_B_TAIL, COL_B_HEAD, tf);
+        float tf    = float(i) / float(POINT_COUNT - 2);
+        float brt   = pow(tf, TAIL_FALLOFF);
+        float rad   = GLOW_RADIUS * mix(TAIL_SPREAD, 1.0, tf);
+        vec3  glowC = mix(COL_B_TAIL, COL_B_HEAD, tf);  // tail→head gradient
 
         prev = c; c = (pts[i] + pts[i+1]) * 0.5;
         float d = sdBezier(pos, CURVE_SCALE*prev, CURVE_SCALE*pts[i], CURVE_SCALE*c);
-        col += brt * glowFn(d, rad, GLOW_INTENSITY) * segC;
-        col += CORE_BRIGHTNESS * brt * brt * segC * smoothstep(0.006, 0.003, d);
+        col += brt * glowFn(d, rad, GLOW_INTENSITY) * glowC;
+        col += CORE_BRIGHTNESS * brt * brt * COL_B_CORE * smoothstep(0.006, 0.003, d);
     }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+out vec4 fragColor;
+
+void mainImage(out vec4 fc, in vec2 fragCoord) {
     vec2 u = (fragCoord - iResolution.xy * 0.5) / iResolution.y;
 
     float zoom  = sin(iTime / HEX_ZOOM_SPEED) * HEX_ZOOM_AMP + HEX_ZOOM_BASE;
@@ -225,7 +233,10 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     cometTrailA(iTime, pos, col);
     cometTrailB(iTime, pos, col);
 
-    col = 1.0 - exp(-col);
+    // Hue-preserving tone mapping — compresses luminance so the colour ratio is
+    // maintained at any CORE_BRIGHTNESS, preventing the core washing to white.
+    float luma_raw = max(dot(col, vec3(0.299, 0.587, 0.114)), 1e-6);
+    col = col * (1.0 - exp(-luma_raw)) / luma_raw;
     col *= border;
 
     // Grain — scaled by luminance so it only textures the lit areas.
@@ -238,11 +249,9 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     col  = max(col, vec3(0.0));
 
     // Alpha = 0 where nothing is drawn (transparent background shows through).
-    fragColor = vec4(col, min(1.0, col.r + col.g + col.b));
+    fc = vec4(col, min(1.0, col.r + col.g + col.b));
 }
 
 void main() {
-    vec4 color;
-    mainImage(color, gl_FragCoord.xy);
-    gl_FragColor = color;
+    mainImage(fragColor, gl_FragCoord.xy);
 }

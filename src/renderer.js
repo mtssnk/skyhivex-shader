@@ -15,8 +15,8 @@
  * inside a Preact component (or any other component) without changes.
  */
 
-const VERTEX_SHADER = `
-  attribute vec2 a_position;
+const VERTEX_SHADER = `#version 300 es
+  in vec2 a_position;
   void main() {
     gl_Position = vec4(a_position, 0.0, 1.0);
   }
@@ -66,24 +66,23 @@ function linkProgram(gl, vs, fs) {
 }
 
 /**
- * Create a fullscreen WebGL1 renderer for a Shadertoy-style fragment shader.
+ * Create a fullscreen WebGL2 renderer for a Shadertoy-style fragment shader.
  *
  * The fragment shader must declare:
  *   uniform vec2  iResolution;
  *   uniform float iTime;
- * and a `void main()` entry point (already included in shader.frag).
+ * and use GLSL ES 3.00 (`#version 300 es`).
  *
  * @param {HTMLCanvasElement} canvas
- * @param {string} fragSrc  Full GLSL fragment shader source.
+ * @param {string} fragSrc  Full GLSL ES 3.00 fragment shader source.
  * @returns {{ start: () => void, stop: () => void, destroy: () => void }}
  */
 export function createRenderer(canvas, fragSrc) {
   // premultipliedAlpha: false → straight alpha compositing, so the canvas blends
   // cleanly over whatever HTML background is behind it.
   const ctxOpts = { alpha: true, premultipliedAlpha: false };
-  const gl = canvas.getContext('webgl', ctxOpts)
-           || canvas.getContext('experimental-webgl', ctxOpts);
-  if (!gl) throw new Error('WebGL is not supported in this browser.');
+  const gl = canvas.getContext('webgl2', ctxOpts);
+  if (!gl) throw new Error('WebGL2 is not supported in this browser. Try Chrome, Firefox, or Safari 15+.');
 
   // ── Compile & link ─────────────────────────────────────────────────────────
   const vs      = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER);
