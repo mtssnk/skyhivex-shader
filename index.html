@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Heart × Hex — shader prototype</title>
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        background: #191616;
+        overflow: hidden;
+      }
+
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        background: transparent;
+      }
+
+      /* ── Dev overlay ── */
+      #hud {
+        position: fixed;
+        bottom: 1rem;
+        left: 1rem;
+        font:
+          11px/1.6 "SF Mono",
+          "Fira Code",
+          monospace;
+        color: rgba(255, 255, 255, 0.45);
+        pointer-events: none;
+        user-select: none;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="canvas"></canvas>
+    <div id="hud"></div>
+
+    <script type="module">
+      import { createRenderer } from "./src/renderer.js";
+
+      // ── Load the fragment shader source ──────────────────────────────────────
+      // We fetch shader.frag at runtime so you can edit it and just reload the
+      // page — no build step required during prototyping.
+      async function main() {
+        const canvas = document.getElementById("canvas");
+
+        // ── Shader variant — change this line to switch effects ─────────────────
+        // 'shader.frag'        — standard glowing curves
+        // 'shader-comet.frag'  — comet tail effect
+        const SHADER_FILE = "shader-comet.frag";
+        // ────────────────────────────────────────────────────────────────────────
+
+        let fragSrc;
+        try {
+          const res = await fetch(`./${SHADER_FILE}?v=` + Date.now());
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          fragSrc = await res.text();
+        } catch (err) {
+          showError(`Could not load shader.frag:\n${err.message}`);
+          return;
+        }
+
+        let renderer;
+        try {
+          renderer = createRenderer(canvas, fragSrc);
+        } catch (err) {
+          showError(`WebGL / shader error:\n${err.message}`);
+          return;
+        }
+
+        renderer.start();
+        document.getElementById("hud").textContent =
+          `Shader: ${SHADER_FILE} — edit → reload`;
+
+        // Pause when the tab is hidden to save GPU time.
+        document.addEventListener("visibilitychange", () => {
+          document.hidden ? renderer.stop() : renderer.start();
+        });
+      }
+
+      function showError(msg) {
+        const el = document.createElement("pre");
+        Object.assign(el.style, {
+          position: "fixed",
+          inset: "2rem",
+          background: "rgba(0,0,0,.85)",
+          color: "#f66",
+          padding: "1.5rem",
+          borderRadius: "6px",
+          whiteSpace: "pre-wrap",
+          font: "13px/1.5 monospace",
+        });
+        el.textContent = msg;
+        document.body.appendChild(el);
+        console.error(msg);
+      }
+
+      main();
+    </script>
+  </body>
+</html>
