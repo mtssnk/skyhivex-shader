@@ -10,8 +10,8 @@ uniform float iTime;
 
 // ── Curve tracing ─────────────────────────────────────────────────────────────
 const float SPEED         = 0.17;    // trace speed (negative = clockwise)
-const float EASE_STRENGTH = 0.35;    // speed variation; 0 = linear, <1 = never stops
-const float SNAKE_LEN     = 2.5;    // total comet length in path-parameter radians
+const float EASE_STRENGTH = 0.45;    // speed variation; 0 = linear, <1 = never stops
+const float SNAKE_LEN     = 3.1;    // total comet length in path-parameter radians
 const float CURVE_SCALE   = 0.5;    // shape size relative to hex cell
 const float PHASE_OFFSET  = 3.14159; // angular separation between the two comets
 // const float PHASE_OFFSET  = 3.14159; // angular separation between the two comets
@@ -23,16 +23,12 @@ const float PHASE_OFFSET  = 3.14159; // angular separation between the two comet
 
 // ── Glow & comet shape ────────────────────────────────────────────────────────
 const float GLOW_RADIUS    = 0.013; // nucleus halo radius (tightest point at head)
-const float GLOW_INTENSITY = 2.0;   // glow falloff exponent (higher = tighter halo)
-const float TAIL_FALLOFF   = 2.0;   // brightness decay exponent (1=linear, 2=quad, 3=steep)
-const float TAIL_SPREAD    = 6.0;   // glow radius at tail tip ÷ head radius
+const float GLOW_INTENSITY = 1.3;     // glow falloff exponent (higher = tighter halo)
+const float TAIL_FALLOFF   = 2.1;   // brightness decay exponent (1=linear, 2=quad, 3=steep)
+const float TAIL_SPREAD    = 4.0;   // glow radius at tail tip ÷ head radius
 
 // ── Hex grid ──────────────────────────────────────────────────────────────────
-const float HEX_ZOOM_BASE  = 55.0;
-const float HEX_ZOOM_AMP   = 0.0;
-const float HEX_ZOOM_SPEED = 5.0;
-const float HEX_DRIFT_X    = 0.0;
-const float HEX_DRIFT_Y    = 0.0;
+const float HEX_ZOOM_BASE  = 37.0;
 const float HEX_BORDER     = 0.2;
 
 // ── Grain ─────────────────────────────────────────────────────────────────────
@@ -165,15 +161,13 @@ out vec4 fragColor;
 void mainImage(out vec4 fc, in vec2 fragCoord) {
     vec2 u = (fragCoord - iResolution.xy * 0.5) / iResolution.y;
 
-    float zoom  = sin(iTime / HEX_ZOOM_SPEED) * HEX_ZOOM_AMP + HEX_ZOOM_BASE;
-    vec2  drift = vec2(HEX_DRIFT_X * sin(iTime), HEX_DRIFT_Y * sin(iTime * 1.2));
-    vec4  h     = hexCell(u * zoom + drift);
+    vec4  h     = hexCell(u * HEX_ZOOM_BASE);
 
     float eDist  = hexDist(h.xy);
     vec3  border = mix(vec3(1.0), vec3(0.0),
                        smoothstep(0.0, 0.06, eDist - 0.5 + HEX_BORDER));
 
-    vec2 pos = vec2(1.0, -1.0) * (h.zw * S - drift) / zoom;
+    vec2 pos = vec2(1.0, -1.0) * h.zw * S / HEX_ZOOM_BASE;
 
     vec3 col = vec3(0.0);
     cometTrail(iTime, 0.0,          COL_A_HEAD, COL_A_TAIL, pos, col);
