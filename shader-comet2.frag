@@ -5,33 +5,30 @@ uniform vec2  iResolution;
 uniform float iTime;
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// COMET VARIANT  –  variation knobs
+// COMET VARIANT — two comets sharing one closed path
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ── Curve tracing ─────────────────────────────────────────────────────────────
-const float SPEED         = 0.28;   // trace speed (negative = clockwise)
-const float EASE_STRENGTH = 0.2;   // speed variation; 0 = linear, <1 = never stops
-const float SNAKE_LEN     = 5.0;   // total comet length in path-parameter radians
-const float CURVE_SCALE   = 0.5;   // shape size relative to hex cell
+const float SPEED         = 0.17;    // trace speed (negative = clockwise)
+const float EASE_STRENGTH = 0.35;    // speed variation; 0 = linear, <1 = never stops
+const float SNAKE_LEN     = 2.5;    // total comet length in path-parameter radians
+const float CURVE_SCALE   = 0.5;    // shape size relative to hex cell
+const float PHASE_OFFSET  = 3.14159; // angular separation between the two comets
+// const float PHASE_OFFSET  = 3.14159; // angular separation between the two comets
 
-// More points → smoother brightness gradient along the tail.
 #define POINT_COUNT 18
 
 // ── Colour helper — paste any 6-digit hex code directly from a colour picker ──
-// Usage: HEX(0xRRGGBB)
-// Bitwise unpacking is a GLSL ES 3.00 (WebGL2) feature; the result is a
-// constant expression so it works with const globals.
 #define HEX(c) (vec3(float((c) >> 16 & 0xFF), float((c) >> 8 & 0xFF), float((c) & 0xFF)) / 255.0)
 
 // ── Glow & comet shape ────────────────────────────────────────────────────────
-const float GLOW_RADIUS     = 0.013; // nucleus halo radius (tightest point at head)
-const float GLOW_INTENSITY  = 2.0;   // glow falloff exponent (higher = tighter halo)
-// Tail parameters
-const float TAIL_FALLOFF    = 2.0;   // brightness decay exponent (1=linear, 2=quad, 3=steep)
-const float TAIL_SPREAD     = 6.0;   // glow radius at tail tip ÷ head radius
+const float GLOW_RADIUS    = 0.013; // nucleus halo radius (tightest point at head)
+const float GLOW_INTENSITY = 2.0;   // glow falloff exponent (higher = tighter halo)
+const float TAIL_FALLOFF   = 2.0;   // brightness decay exponent (1=linear, 2=quad, 3=steep)
+const float TAIL_SPREAD    = 6.0;   // glow radius at tail tip ÷ head radius
 
 // ── Hex grid ──────────────────────────────────────────────────────────────────
-const float HEX_ZOOM_BASE  = 50.0;
+const float HEX_ZOOM_BASE  = 55.0;
 const float HEX_ZOOM_AMP   = 0.0;
 const float HEX_ZOOM_SPEED = 5.0;
 const float HEX_DRIFT_X    = 0.0;
@@ -43,16 +40,13 @@ const float GRAIN_AMOUNT = 1.5;   // intensity (scaled by luma — only affects 
 const float GRAIN_SPEED  = 30.0;  // flicker rate in Hz
 
 // ── Comet colours ─────────────────────────────────────────────────────────────
-// Two colour controls per path:
-//   HEAD = outer coma / head glow   (blends into the tail)
-//   TAIL = dispersing vapour trail
-const vec3 COL_A_HEAD = HEX(0x3E00E9);  // Path A head glow     — blue
-const vec3 COL_A_TAIL = HEX(0xB50021);  // Path A tail          — deep purple
-const vec3 COL_B_HEAD = HEX(0x00FF33);  // Path B head glow     — green
-const vec3 COL_B_TAIL = HEX(0xC70003);  // Path B tail          — deep red
+const vec3 COL_A_HEAD = HEX(0xB50021);  // Comet A head glow
+const vec3 COL_A_TAIL = HEX(0x3E00E9);  // Comet A tail
+const vec3 COL_B_HEAD = HEX(0xC70003);  // Comet B head glow
+const vec3 COL_B_TAIL = HEX(0x00FF33);  // Comet B tail
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Cubic bezier position — must be defined before curve shapes.
+// Cubic bezier position
 // ─────────────────────────────────────────────────────────────────────────────
 vec2 cbez(vec2 p0, vec2 cp1, vec2 cp2, vec2 p1, float t) {
     float u = 1.0 - t;
@@ -60,36 +54,48 @@ vec2 cbez(vec2 p0, vec2 cp1, vec2 cp2, vec2 p1, float t) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// CURVE SHAPES  (viewBox 0 0 504 328 — centre 252,164 — scale 252)
-// Coordinates: x_norm = (svgX − 252) / 252,  y_norm = (svgY − 164) / 252
+// PATH  (SVG viewBox 0 0 504 328, normalised: x=(svgX−252)/252, y=(svgY−164)/252)
+//
+// Segment map (10 segments, 4 cubic + 6 linear):
+//   1  cubic  (503.2,  0.0) → (252.2,140.5)   arc ≈ 1.143
+//   2  line   (252.2,140.5) → (188.0, 77.2)   arc ≈ 0.358
+//   3  line   (188.0, 77.2) → ( 77.3, 77.2)   arc ≈ 0.439
+//   4  line   ( 77.3, 77.2) → (188.3,188.3)   arc ≈ 0.623
+//   5  cubic  (188.3,188.3) → (  0.0,327.3)   arc ≈ 0.931
+//   6  cubic  (  0.0,327.3) → (227.5,227.6)   arc ≈ 0.994
+//   7  line   (227.5,227.6) → (292.8,292.9)   arc ≈ 0.366
+//   8  line   (292.8,292.9) → (406.9,292.9)   arc ≈ 0.453
+//   9  line   (406.9,292.9) → (290.1,177.9)   arc ≈ 0.650
+//  10  cubic  (290.1,177.9) → (503.2,  0.0)   arc ≈ 1.102
 // ═══════════════════════════════════════════════════════════════════════════════
-
-// ── PATH A — diagonal band (parallelogram, sharp corners) ──
-//   M406.9,292.9 H292.8 L77.3,77.2 h110.7 Z  (viewBox 0 0 504 328)
-vec2 curvePosA(float t) {
-    vec2 pA = vec2( 0.6147,  0.5115);  // (406.9, 292.9)
-    vec2 pB = vec2( 0.1619,  0.5115);  // (292.8, 292.9)
-    vec2 pC = vec2(-0.6933, -0.3444);  // ( 77.3,  77.2)
-    vec2 pD = vec2(-0.2540, -0.3444);  // (188.0,  77.2)
-
-    float lAB = 0.453, lBC = 1.210, lCD = 0.439, lDA = 1.220;
-    float total = lAB + lBC + lCD + lDA;
+vec2 curvePath(float t) {
+    float l1=1.143, l2=0.358, l3=0.439, l4=0.623,
+          l5=0.931, l6=0.994, l7=0.366, l8=0.453,
+          l9=0.650, l10=1.102;
+    float total = l1+l2+l3+l4+l5+l6+l7+l8+l9+l10;
     float arc = fract(t / 6.28318) * total;
 
-    if (arc < lAB) return mix(pA, pB, arc / lAB); arc -= lAB;
-    if (arc < lBC) return mix(pB, pC, arc / lBC); arc -= lBC;
-    if (arc < lCD) return mix(pC, pD, arc / lCD); arc -= lCD;
-    return mix(pD, pA, clamp(arc / lDA, 0.0, 1.0));
-}
+    vec2 p0 = vec2( 0.9968,-0.6508);  // (503.2,  0.0)
+    vec2 p1 = vec2( 0.0008,-0.0933);  // (252.2,140.5)
+    vec2 p2 = vec2(-0.2540,-0.3444);  // (188.0, 77.2)
+    vec2 p3 = vec2(-0.6933,-0.3444);  // ( 77.3, 77.2)
+    vec2 p4 = vec2(-0.2528, 0.0964);  // (188.3,188.3)
+    vec2 p5 = vec2(-1.0000, 0.6480);  // (  0.0,327.3)
+    vec2 p6 = vec2(-0.0972, 0.2524);  // (227.5,227.6)
+    vec2 p7 = vec2( 0.1619, 0.5115);  // (292.8,292.9)
+    vec2 p8 = vec2( 0.6147, 0.5115);  // (406.9,292.9)
+    vec2 p9 = vec2( 0.1512, 0.0552);  // (290.1,177.9)
 
-// ── PATH B — curved swoosh ──
-vec2 curvePosB(float t) {
-    float u = fract(t / 6.28318) * 4.0;
-    float seg = floor(u), lt = fract(u);
-    if (seg < 1.0) return cbez(vec2( 0.997,-0.651), vec2( 0.762,-0.513), vec2( 0.194, 0.032), vec2( 0.014, 0.170), lt);
-    if (seg < 2.0) return cbez(vec2( 0.014, 0.170), vec2(-0.167, 0.309), vec2(-0.561, 0.591), vec2(-1.000, 0.648), lt);
-    if (seg < 3.0) return cbez(vec2(-1.000, 0.648), vec2(-0.758, 0.555), vec2(-0.383, 0.187), vec2(-0.130, 0.000), lt);
-    return          cbez(vec2(-0.130, 0.000), vec2( 0.122,-0.187), vec2( 0.641,-0.519), vec2( 0.997,-0.651), lt);
+    if (arc < l1)  { return cbez(p0, vec2( 0.6944,-0.5393), vec2( 0.2750,-0.2829), p1, arc/l1); } arc -= l1;
+    if (arc < l2)  { return mix(p1, p2, arc/l2); } arc -= l2;
+    if (arc < l3)  { return mix(p2, p3, arc/l3); } arc -= l3;
+    if (arc < l4)  { return mix(p3, p4, arc/l4); } arc -= l4;
+    if (arc < l5)  { return cbez(p4, vec2(-0.4937, 0.2929), vec2(-0.7948, 0.5690), p5, arc/l5); } arc -= l5;
+    if (arc < l6)  { return cbez(p5, vec2(-0.6365, 0.6012), vec2(-0.3032, 0.3988), p6, arc/l6); } arc -= l6;
+    if (arc < l7)  { return mix(p6, p7, arc/l7); } arc -= l7;
+    if (arc < l8)  { return mix(p7, p8, arc/l8); } arc -= l8;
+    if (arc < l9)  { return mix(p8, p9, arc/l9); } arc -= l9;
+    return cbez(p9, vec2(0.3952,-0.1579), vec2(0.8060,-0.5389), p0, clamp(arc/l10, 0.0, 1.0));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -97,37 +103,6 @@ vec2 curvePosB(float t) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const vec2 S = vec2(1.7320508, 1.0); // flat-top hex basis
-
-// Quadratic Bézier SDF (Iñigo Quilez)
-float sdBezier(vec2 pos, vec2 A, vec2 B, vec2 C) {
-    vec2 a = B - A, b = A - 2.0*B + C, c = a * 2.0, d = A - pos;
-    float kk = 1.0 / dot(b, b);
-    float kx = kk * dot(a, b);
-    float ky = kk * (2.0*dot(a, a) + dot(d, b)) / 3.0;
-    float kz = kk * dot(d, a);
-    float p = ky - kx*kx, p3 = p*p*p;
-    float q = kx*(2.0*kx*kx - 3.0*ky) + kz;
-    float h = q*q + 4.0*p3;
-    float res;
-    if (h >= 0.0) {
-        h = sqrt(h);
-        vec2 x = (vec2(h,-h) - q) * 0.5;
-        vec2 uv = sign(x) * pow(abs(x), vec2(1.0/3.0));
-        float t = clamp(uv.x + uv.y - kx, 0.0, 1.0);
-        vec2 qos = d + (c + b*t)*t;
-        res = length(qos);
-    } else {
-        float z = sqrt(-p);
-        float v = acos(clamp(q / (p*z*2.0), -1.0, 1.0)) / 3.0;
-        float m = cos(v), n = sin(v) * 1.732050808;
-        vec3 t = clamp(vec3(m+m, -n-m, n-m) * z - kx, 0.0, 1.0);
-        vec2 qos = d + (c + b*t.x)*t.x; float dis = dot(qos,qos); res = dis;
-             qos = d + (c + b*t.y)*t.y;      dis = dot(qos,qos); res = min(res,dis);
-             qos = d + (c + b*t.z)*t.z;      dis = dot(qos,qos); res = min(res,dis);
-        res = sqrt(res);
-    }
-    return res;
-}
 
 // Glow falloff — guarded against d=0.
 float glowFn(float dist, float r, float intensity) {
@@ -165,40 +140,20 @@ vec4 hexCell(vec2 p) {
 
 vec2 pts[POINT_COUNT];
 
-void cometTrailA(float t, vec2 pos, inout vec3 col) {
+void cometTrail(float t, float phaseOff, vec3 colHead, vec3 colTail, vec2 pos, inout vec3 col) {
     float raw   = SPEED * t * 6.28318;
-    float phase = raw + EASE_STRENGTH * sin(raw);
+    float phase = raw + EASE_STRENGTH * sin(raw) + phaseOff;
     float step  = SNAKE_LEN / float(POINT_COUNT);
     for (int i = 0; i < POINT_COUNT; i++)
-        pts[i] = curvePosA(phase + float(i) * step);
+        pts[i] = curvePath(phase + float(i) * step);
 
     for (int i = 0; i < POINT_COUNT - 1; i++) {
         float tf    = float(i) / float(POINT_COUNT - 2);
         float brt   = pow(tf, TAIL_FALLOFF);
         float rad   = GLOW_RADIUS * mix(TAIL_SPREAD, 1.0, tf);
-        vec3  glowC = mix(COL_A_TAIL, COL_A_HEAD, tf);
+        vec3  glowC = mix(colTail, colHead, tf);
 
         float d = sdSegment(pos, CURVE_SCALE * pts[i], CURVE_SCALE * pts[i+1]);
-        col += brt * glowFn(d, rad, GLOW_INTENSITY) * glowC;
-    }
-}
-
-void cometTrailB(float t, vec2 pos, inout vec3 col) {
-    float raw   = SPEED * t * 6.28318;
-    float phase = raw + EASE_STRENGTH * sin(raw);
-    float step  = SNAKE_LEN / float(POINT_COUNT);
-    for (int i = 0; i < POINT_COUNT; i++)
-        pts[i] = curvePosB(phase + float(i) * step);
-
-    vec2 c = (pts[0] + pts[1]) * 0.5, prev;
-    for (int i = 0; i < POINT_COUNT - 1; i++) {
-        float tf    = float(i) / float(POINT_COUNT - 2);
-        float brt   = pow(tf, TAIL_FALLOFF);
-        float rad   = GLOW_RADIUS * mix(TAIL_SPREAD, 1.0, tf);
-        vec3  glowC = mix(COL_B_TAIL, COL_B_HEAD, tf);
-
-        prev = c; c = (pts[i] + pts[i+1]) * 0.5;
-        float d = sdBezier(pos, CURVE_SCALE*prev, CURVE_SCALE*pts[i], CURVE_SCALE*c);
         col += brt * glowFn(d, rad, GLOW_INTENSITY) * glowC;
     }
 }
@@ -221,8 +176,8 @@ void mainImage(out vec4 fc, in vec2 fragCoord) {
     vec2 pos = vec2(1.0, -1.0) * (h.zw * S - drift) / zoom;
 
     vec3 col = vec3(0.0);
-    cometTrailA(iTime, pos, col);
-    cometTrailB(iTime, pos, col);
+    cometTrail(iTime, 0.0,          COL_A_HEAD, COL_A_TAIL, pos, col);
+    cometTrail(iTime, PHASE_OFFSET, COL_B_HEAD, COL_B_TAIL, pos, col);
 
     // Hue-preserving tone mapping.
     float luma_raw = max(dot(col, vec3(0.299, 0.587, 0.114)), 1e-6);

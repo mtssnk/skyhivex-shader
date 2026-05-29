@@ -30,16 +30,7 @@
 
       /* ── Dev overlay ── */
       #hud {
-        position: fixed;
-        bottom: 1rem;
-        left: 1rem;
-        font:
-          11px/1.6 "SF Mono",
-          "Fira Code",
-          monospace;
-        color: rgba(255, 255, 255, 0.45);
-        pointer-events: none;
-        user-select: none;
+        display: none;
       }
     </style>
   </head>
@@ -59,7 +50,7 @@
         // ── Shader variant — change this line to switch effects ─────────────────
         // 'shader.frag'        — standard glowing curves
         // 'shader-comet.frag'  — comet tail effect
-        const SHADER_FILE = "shader-comet.frag";
+        const SHADER_FILE = "shader-comet2.frag";
         // ────────────────────────────────────────────────────────────────────────
 
         let fragSrc;
@@ -72,17 +63,28 @@
           return;
         }
 
+        const hud = document.getElementById("hud");
+        const hudBase = `Shader: ${SHADER_FILE}`;
+        hud.textContent = hudBase;
+
+        // ── Render resolution — lower maxPixelRatio to gain fps ───────────────
+        const MAX_PIXEL_RATIO = 1.5;
+        // ──────────────────────────────────────────────────────────────────────
+
         let renderer;
         try {
-          renderer = createRenderer(canvas, fragSrc);
+          renderer = createRenderer(canvas, fragSrc, {
+            maxPixelRatio: MAX_PIXEL_RATIO,
+            onStats: ({ fps }) => {
+              hud.textContent = `${hudBase} — ${canvas.width}×${canvas.height}px — ${fps} fps`;
+            },
+          });
         } catch (err) {
           showError(`WebGL / shader error:\n${err.message}`);
           return;
         }
 
         renderer.start();
-        document.getElementById("hud").textContent =
-          `Shader: ${SHADER_FILE} — edit → reload`;
 
         // Pause when the tab is hidden to save GPU time.
         document.addEventListener("visibilitychange", () => {

@@ -77,7 +77,7 @@ function linkProgram(gl, vs, fs) {
  * @param {string} fragSrc  Full GLSL ES 3.00 fragment shader source.
  * @returns {{ start: () => void, stop: () => void, destroy: () => void }}
  */
-export function createRenderer(canvas, fragSrc) {
+export function createRenderer(canvas, fragSrc, { onStats, maxPixelRatio = 1.5 } = {}) {
   // premultipliedAlpha: false → straight alpha compositing, so the canvas blends
   // cleanly over whatever HTML background is behind it.
   const ctxOpts = { alpha: true, premultipliedAlpha: false };
@@ -103,24 +103,36 @@ export function createRenderer(canvas, fragSrc) {
   const uTime       = gl.getUniformLocation(program, 'iTime');
 
   // ── Resize handling ────────────────────────────────────────────────────────
+  const dpr = Math.min(devicePixelRatio, maxPixelRatio);
+
   const ro = new ResizeObserver(() => {
-    canvas.width  = canvas.clientWidth  * devicePixelRatio;
-    canvas.height = canvas.clientHeight * devicePixelRatio;
+    canvas.width  = canvas.clientWidth  * dpr;
+    canvas.height = canvas.clientHeight * dpr;
     gl.viewport(0, 0, canvas.width, canvas.height);
   });
   ro.observe(canvas);
   // Trigger immediately
-  canvas.width  = canvas.clientWidth  * devicePixelRatio;
-  canvas.height = canvas.clientHeight * devicePixelRatio;
+  canvas.width  = canvas.clientWidth  * dpr;
+  canvas.height = canvas.clientHeight * dpr;
   gl.viewport(0, 0, canvas.width, canvas.height);
 
   // ── Animation loop ─────────────────────────────────────────────────────────
-  let rafId    = null;
-  let startMs  = null;
+  let rafId      = null;
+  let startMs    = null;
+  let fpsFrames  = 0;
+  let fpsMarkMs  = null;
 
   function frame(nowMs) {
-    if (startMs === null) startMs = nowMs;
+    if (startMs === null) { startMs = nowMs; fpsMarkMs = nowMs; }
     const t = (nowMs - startMs) / 1000.0;
+
+    fpsFrames++;
+    const elapsed = nowMs - fpsMarkMs;
+    if (elapsed >= 1000 && onStats) {
+      onStats({ fps: Math.round(fpsFrames * 1000 / elapsed) });
+      fpsFrames = 0;
+      fpsMarkMs = nowMs;
+    }
 
     gl.useProgram(program);
     gl.uniform2f(uResolution, canvas.width, canvas.height);
