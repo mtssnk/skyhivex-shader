@@ -31,6 +31,11 @@ const float TAIL_SPREAD    = 4.0;   // glow radius at tail tip ÷ head radius
 const float HEX_ZOOM_BASE  = 37.0;
 const float HEX_BORDER     = 0.2;
 
+// ── Chromatic aberration ──────────────────────────────────────────────────────
+const float CA_AMOUNT    = 0.0324;  // channel-split distance — needs ~0.027 to shift one hex cell
+const float CA_OPACITY   = 0.6;    // 0 = no effect, 1 = full shift
+const int   CA_TAIL_SEGS = 1;      // tail segments with CA (0–17); head segments are free
+
 // ── Grain ─────────────────────────────────────────────────────────────────────
 const float GRAIN_AMOUNT = 1.5;   // intensity (scaled by luma — only affects lit areas)
 const float GRAIN_SPEED  = 30.0;  // flicker rate in Hz
@@ -136,21 +141,41 @@ vec4 hexCell(vec2 p) {
 
 vec2 pts[POINT_COUNT];
 
-void cometTrail(float t, float phaseOff, vec3 colHead, vec3 colTail, vec2 pos, inout vec3 col) {
+// Fills pts[] with path points for one comet — the expensive part (curvePath × POINT_COUNT).
+void fillPts(float t, float phaseOff) {
     float raw   = SPEED * t * 6.28318;
     float phase = raw + EASE_STRENGTH * sin(raw) + phaseOff;
     float step  = SNAKE_LEN / float(POINT_COUNT);
     for (int i = 0; i < POINT_COUNT; i++)
         pts[i] = curvePath(phase + float(i) * step);
+}
 
+// Tail segments (i < CA_TAIL_SEGS) evaluate R/B at their own hex-cell positions.
+// Head segments share a single eval — same cost as the original shader.
+// POINT_COUNT is a #define so the loop unrolls and the branch folds at compile time.
+void evalTrailCA(vec3 colHead, vec3 colTail,
+                  vec2 posR, vec2 posG, vec2 posB,
+                  inout vec3 colR, inout vec3 colG, inout vec3 colB) {
     for (int i = 0; i < POINT_COUNT - 1; i++) {
         float tf    = float(i) / float(POINT_COUNT - 2);
         float brt   = pow(tf, TAIL_FALLOFF);
         float rad   = GLOW_RADIUS * mix(TAIL_SPREAD, 1.0, tf);
-        vec3  glowC = mix(colTail, colHead, tf);
-
-        float d = sdSegment(pos, CURVE_SCALE * pts[i], CURVE_SCALE * pts[i+1]);
-        col += brt * glowFn(d, rad, GLOW_INTENSITY) * glowC;
+        vec3  glowC = mix(colTail, colHead, tf) * brt;
+        vec2  a     = CURVE_SCALE * pts[i];
+        vec2  ba    = CURVE_SCALE * pts[i+1] - a;
+        float ba2   = max(dot(ba, ba), 1e-8);
+        float t0    = clamp(dot(posG-a, ba)/ba2, 0.0, 1.0);
+        float glow  = glowFn(length(posG - a - ba*t0), rad, GLOW_INTENSITY);
+        if (i < CA_TAIL_SEGS) {
+            float tR = clamp(dot(posR-a, ba)/ba2, 0.0, 1.0);
+            float tB = clamp(dot(posB-a, ba)/ba2, 0.0, 1.0);
+            colR += glowFn(length(posR - a - ba*tR), rad, GLOW_INTENSITY) * glowC;
+            colG += glow * glowC;
+            colB += glowFn(length(posB - a - ba*tB), rad, GLOW_INTENSITY) * glowC;
+        } else {
+            vec3 c = glow * glowC;
+            colR += c; colG += c; colB += c;
+        }
     }
 }
 
@@ -161,22 +186,41 @@ out vec4 fragColor;
 void mainImage(out vec4 fc, in vec2 fragCoord) {
     vec2 u = (fragCoord - iResolution.xy * 0.5) / iResolution.y;
 
-    vec4  h     = hexCell(u * HEX_ZOOM_BASE);
+    // Per-channel hex cells: R and B shifted into adjacent cells, G centred.
+    vec2 offR = vec2( 0.894,  0.447) * CA_AMOUNT;
+    vec2 offB = vec2(-0.894, -0.447) * CA_AMOUNT;
 
-    float eDist  = hexDist(h.xy);
-    vec3  border = mix(vec3(1.0), vec3(0.0),
-                       smoothstep(0.0, 0.06, eDist - 0.5 + HEX_BORDER));
+    vec4 hR = hexCell((u + offR) * HEX_ZOOM_BASE);
+    vec4 hG = hexCell( u         * HEX_ZOOM_BASE);
+    vec4 hB = hexCell((u + offB) * HEX_ZOOM_BASE);
 
-    vec2 pos = vec2(1.0, -1.0) * h.zw * S / HEX_ZOOM_BASE;
+    float brdrR = mix(1.0, 0.0, smoothstep(0.0, 0.06, hexDist(hR.xy) - 0.5 + HEX_BORDER));
+    float brdrG = mix(1.0, 0.0, smoothstep(0.0, 0.06, hexDist(hG.xy) - 0.5 + HEX_BORDER));
+    float brdrB = mix(1.0, 0.0, smoothstep(0.0, 0.06, hexDist(hB.xy) - 0.5 + HEX_BORDER));
 
-    vec3 col = vec3(0.0);
-    cometTrail(iTime, 0.0,          COL_A_HEAD, COL_A_TAIL, pos, col);
-    cometTrail(iTime, PHASE_OFFSET, COL_B_HEAD, COL_B_TAIL, pos, col);
+    vec2 posR = vec2(1.0, -1.0) * hR.zw * S / HEX_ZOOM_BASE;
+    vec2 posG = vec2(1.0, -1.0) * hG.zw * S / HEX_ZOOM_BASE;
+    vec2 posB = vec2(1.0, -1.0) * hB.zw * S / HEX_ZOOM_BASE;
 
-    // Hue-preserving tone mapping.
-    float luma_raw = max(dot(col, vec3(0.299, 0.587, 0.114)), 1e-6);
-    col = col * (1.0 - exp(-luma_raw)) / luma_raw;
-    col *= border;
+    vec3 colR = vec3(0.0), colG = vec3(0.0), colB = vec3(0.0);
+
+    fillPts(iTime, 0.0);
+    evalTrailCA(COL_A_HEAD, COL_A_TAIL, posR, posG, posB, colR, colG, colB);
+
+    fillPts(iTime, PHASE_OFFSET);
+    evalTrailCA(COL_B_HEAD, COL_B_TAIL, posR, posG, posB, colR, colG, colB);
+
+    // Hue-preserving tone mapping per channel.
+    float luR = max(dot(colR, vec3(0.299, 0.587, 0.114)), 1e-6);
+    float luG = max(dot(colG, vec3(0.299, 0.587, 0.114)), 1e-6);
+    float luB = max(dot(colB, vec3(0.299, 0.587, 0.114)), 1e-6);
+    colR = colR * (1.0 - exp(-luR)) / luR;
+    colG = colG * (1.0 - exp(-luG)) / luG;
+    colB = colB * (1.0 - exp(-luB)) / luB;
+
+    float r = mix(colG.r * brdrG, colR.r * brdrR, CA_OPACITY);
+    float b = mix(colG.b * brdrG, colB.b * brdrB, CA_OPACITY);
+    vec3 col = vec3(r, colG.g * brdrG, b);
 
     // Grain — scaled by luminance so it only textures the lit areas.
     vec2  gp = fract(fragCoord * vec2(0.1031, 0.1030)
@@ -187,7 +231,6 @@ void mainImage(out vec4 fc, in vec2 fragCoord) {
     col += GRAIN_AMOUNT * (grain - 0.5) * luma;
     col  = max(col, vec3(0.0));
 
-    // Alpha = 0 where nothing is drawn (transparent background shows through).
     fc = vec4(col, min(1.0, col.r + col.g + col.b));
 }
 
