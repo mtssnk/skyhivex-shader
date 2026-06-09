@@ -189,6 +189,7 @@ void mainImage(out vec4 fc, in vec2 fragCoord) {
     // Per-channel hex cells: R and B shifted into adjacent cells, G centred.
     vec2 offR = vec2( 0.894,  0.447) * CA_AMOUNT;
     vec2 offB = vec2(-0.894, -0.447) * CA_AMOUNT;
+    // vec2 offG = vec2(-0.894, -0.447) * CA_AMOUNT;
 
     vec4 hR = hexCell((u + offR) * HEX_ZOOM_BASE);
     vec4 hG = hexCell( u         * HEX_ZOOM_BASE);

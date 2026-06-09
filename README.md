@@ -109,6 +109,11 @@ When you're ready to integrate into the Astro + `@astrojs/preact` project:
    for `.frag` files when using the `?raw` suffix.
 
    ## TO DO
-   - Add chromatic aberration effect
+   - ~~Add chromatic aberration effect~~ ✓
    - Explore different colour combinations
    - Try a CRT effect
+   - **Interactivity** (needs `iMouse` uniform wired in `renderer.js` + `index.html`):
+     - Mouse lens — distort UV around cursor to magnify hex cells beneath it
+     - Comet gravity — bend the comet trail toward/away from the cursor on proximity
+     - Mouse controls CA — `iMouse.x` rotates CA offset angle, `iMouse.y` controls intensity
+     - Click ripple — clicking spawns an expanding bright ring that fades through the hex grid (~1–2 s)
