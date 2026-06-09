@@ -34,7 +34,7 @@ const float HEX_BORDER     = 0.2;
 // ── Chromatic aberration ──────────────────────────────────────────────────────
 const float CA_AMOUNT    = 0.0324;  // channel-split distance — needs ~0.027 to shift one hex cell
 const float CA_OPACITY   = 0.6;    // 0 = no effect, 1 = full shift
-const int   CA_TAIL_SEGS = 1;      // tail segments with CA (0–17); head segments are free
+const int  CA_TAIL_SEGS = 1;      // tail segments with CA (0–17); head segments are free
 
 // ── Grain ─────────────────────────────────────────────────────────────────────
 const float GRAIN_AMOUNT = 1.5;   // intensity (scaled by luma — only affects lit areas)
@@ -153,7 +153,7 @@ void fillPts(float t, float phaseOff) {
 // Tail segments (i < CA_TAIL_SEGS) evaluate R/B at their own hex-cell positions.
 // Head segments share a single eval — same cost as the original shader.
 // POINT_COUNT is a #define so the loop unrolls and the branch folds at compile time.
-void evalTrailCA(vec3 colHead, vec3 colTail,
+void evalTrailCA(vec3 colHead, vec3 colTail, float scale,
                   vec2 posR, vec2 posG, vec2 posB,
                   inout vec3 colR, inout vec3 colG, inout vec3 colB) {
     for (int i = 0; i < POINT_COUNT - 1; i++) {
@@ -161,8 +161,8 @@ void evalTrailCA(vec3 colHead, vec3 colTail,
         float brt   = pow(tf, TAIL_FALLOFF);
         float rad   = GLOW_RADIUS * mix(TAIL_SPREAD, 1.0, tf);
         vec3  glowC = mix(colTail, colHead, tf) * brt;
-        vec2  a     = CURVE_SCALE * pts[i];
-        vec2  ba    = CURVE_SCALE * pts[i+1] - a;
+        vec2  a     = scale * pts[i];
+        vec2  ba    = scale * pts[i+1] - a;
         float ba2   = max(dot(ba, ba), 1e-8);
         float t0    = clamp(dot(posG-a, ba)/ba2, 0.0, 1.0);
         float glow  = glowFn(length(posG - a - ba*t0), rad, GLOW_INTENSITY);
@@ -203,13 +203,16 @@ void mainImage(out vec4 fc, in vec2 fragCoord) {
     vec2 posG = vec2(1.0, -1.0) * hG.zw * S / HEX_ZOOM_BASE;
     vec2 posB = vec2(1.0, -1.0) * hB.zw * S / HEX_ZOOM_BASE;
 
+    // Shrink the path to fit portrait viewports; no-op at 1:1 or wider.
+    float pathScale = CURVE_SCALE * min(1.0, iResolution.x / iResolution.y);
+
     vec3 colR = vec3(0.0), colG = vec3(0.0), colB = vec3(0.0);
 
     fillPts(iTime, 0.0);
-    evalTrailCA(COL_A_HEAD, COL_A_TAIL, posR, posG, posB, colR, colG, colB);
+    evalTrailCA(COL_A_HEAD, COL_A_TAIL, pathScale, posR, posG, posB, colR, colG, colB);
 
     fillPts(iTime, PHASE_OFFSET);
-    evalTrailCA(COL_B_HEAD, COL_B_TAIL, posR, posG, posB, colR, colG, colB);
+    evalTrailCA(COL_B_HEAD, COL_B_TAIL, pathScale, posR, posG, posB, colR, colG, colB);
 
     // Hue-preserving tone mapping per channel.
     float luR = max(dot(colR, vec3(0.299, 0.587, 0.114)), 1e-6);
